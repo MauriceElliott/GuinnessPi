@@ -1,0 +1,7 @@
+{
+  "theme": "helix-dark",
+  "lastChangelogVersion": "0.67.1",
+  "defaultProvider": "github-copilot",
+  "defaultModel": "claude-sonnet-4.6",
+  "defaultThinkingLevel": "medium"
+}
