@@ -1,6 +1,6 @@
 {
-  "theme": "helix-dark",
-  "lastChangelogVersion": "0.67.4",
+  "theme": "automata-night",
+  "lastChangelogVersion": "0.67.5",
   "defaultProvider": "github-copilot",
   "defaultModel": "claude-haiku-4.5",
   "defaultThinkingLevel": "medium"
