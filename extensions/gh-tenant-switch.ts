@@ -8,7 +8,7 @@
  *
  * Credentials are stored as sidecars alongside auth.json:
  *   ~/.pi/agent/auth.github.com.json
- *   ~/.pi/agent/auth.kb-tech.ghe.com.json   ← etc. for any host
+ *   ~/.pi/agent/auth.company.ghe.com.json   ← etc. for any host
  *
  * auth.json is always the active credential. On each switch the current
  * credential is saved to its sidecar and the target sidecar is loaded into
