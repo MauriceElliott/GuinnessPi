@@ -2,7 +2,8 @@
   "theme": "automata-night",
   "lastChangelogVersion": "0.67.6",
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4.5",
+  "defaultModel": "claude-sonnet-4.6",
   "defaultThinkingLevel": "high",
-  "enableInstallTelemetry": false
+  "enableInstallTelemetry": false,
+  "activeGhHost": "github.com"
 }

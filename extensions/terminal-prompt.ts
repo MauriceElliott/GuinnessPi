@@ -14,6 +14,8 @@ import { CustomEditor, type ExtensionAPI, type Theme, type ThemeColor } from "@m
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { EditorTheme, TUI } from "@mariozechner/pi-tui";
 import type { KeybindingsManager } from "@mariozechner/pi-coding-agent";
+import { readFileSync, watch } from "fs";
+import { join } from "path";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,18 +30,6 @@ interface CopilotUserData {
   quota_reset_date_utc: string;
   quota_snapshots: { premium_interactions: QuotaSnapshot };
 }
-
-type GitHubHost = "public" | "enterprise";
-
-interface HostConfig {
-  name: string;
-  hostname?: string;
-}
-
-const HOSTS: Record<GitHubHost, HostConfig> = {
-  public: { name: "github.com" },
-  enterprise: { name: "kb-tech.ghe.com", hostname: "kb-tech.ghe.com" },
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -151,14 +141,25 @@ export default function (pi: ExtensionAPI) {
   let gitBranch: string | null = null;
   let tuiRef: { requestRender(): void } | null = null;
   let cwdCache = "";
-  let currentHost: GitHubHost = "public";
+
+  // Load activeGhHost from settings.json (migrates legacy ghTenant field)
+  const settingsPath = join(process.env.HOME || "", ".pi/agent/settings.json");
+  let currentHost: string = (() => {
+    try {
+      const s = JSON.parse(readFileSync(settingsPath, "utf-8"));
+      if (s.activeGhHost) return s.activeGhHost as string;
+      if (s.ghTenant === "enterprise") return "kb-tech.ghe.com";
+      return "github.com";
+    } catch {
+      return "github.com";
+    }
+  })();
 
   async function fetchQuota(): Promise<void> {
     try {
-      const config = HOSTS[currentHost];
       const args = ["api"];
-      if (config.hostname) {
-        args.push("--hostname", config.hostname);
+      if (currentHost !== "github.com") {
+        args.push("--hostname", currentHost);
       }
       args.push("/copilot_internal/user");
       const r = await pi.exec("gh", args, { timeout: 8000 });
@@ -166,11 +167,6 @@ export default function (pi: ExtensionAPI) {
     } catch {
       quotaData = null;
     }
-  }
-
-  function toggleHost(): void {
-    currentHost = currentHost === "public" ? "enterprise" : "public";
-    refreshAll();
   }
 
   async function fetchGitBranch(): Promise<void> {
@@ -212,7 +208,7 @@ export default function (pi: ExtensionAPI) {
     const modelId = theme.fg("text", model?.id ?? "no model");
     const dash = theme.fg("dim", " - ");
     const levelStr = theme.fg(thinkingColor(level), level);
-    const hostLabel = theme.fg("muted", ` [${HOSTS[currentHost].name}]`);
+    const hostLabel = theme.fg("muted", ` [${currentHost}]`);
 
     let left = piGlyph + cwd + sep + modelId + dash + levelStr + theme.fg("dim", " ") + hostLabel;
 
@@ -276,12 +272,24 @@ export default function (pi: ExtensionAPI) {
     tuiRef?.requestRender();
   });
 
-  pi.registerCommand("switch-gh-tenant", {
-    description: "Toggle between github.com and kb-tech.ghe.com for Copilot quota",
-    handler: async () => {
-      toggleHost();
-    },
-  });
+  // Re-render when gh-tenant-switch writes a new activeGhHost to settings.json
+  let watchDebounce: ReturnType<typeof setTimeout> | null = null;
+  try {
+    watch(settingsPath, () => {
+      if (watchDebounce) clearTimeout(watchDebounce);
+      watchDebounce = setTimeout(() => {
+        try {
+          const s = JSON.parse(readFileSync(settingsPath, "utf-8"));
+          const newHost: string = s.activeGhHost ??
+            (s.ghTenant === "enterprise" ? "kb-tech.ghe.com" : "github.com");
+          if (newHost !== currentHost) {
+            currentHost = newHost;
+            refreshAll();
+          }
+        } catch { /* ignore */ }
+      }, 150);
+    });
+  } catch { /* settings file not watchable */ }
 
   pi.on("agent_end", async () => {
     await refreshAll();
