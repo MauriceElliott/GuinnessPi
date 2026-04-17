@@ -29,6 +29,18 @@ interface CopilotUserData {
   quota_snapshots: { premium_interactions: QuotaSnapshot };
 }
 
+type GitHubHost = "public" | "enterprise";
+
+interface HostConfig {
+  name: string;
+  hostname?: string;
+}
+
+const HOSTS: Record<GitHubHost, HostConfig> = {
+  public: { name: "github.com" },
+  enterprise: { name: "kb-tech.ghe.com", hostname: "kb-tech.ghe.com" },
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const PROMPT_GLYPH = "↪ "; // 2 visual columns
@@ -139,14 +151,26 @@ export default function (pi: ExtensionAPI) {
   let gitBranch: string | null = null;
   let tuiRef: { requestRender(): void } | null = null;
   let cwdCache = "";
+  let currentHost: GitHubHost = "public";
 
   async function fetchQuota(): Promise<void> {
     try {
-      const r = await pi.exec("gh", ["api", "/copilot_internal/user"], { timeout: 8000 });
+      const config = HOSTS[currentHost];
+      const args = ["api"];
+      if (config.hostname) {
+        args.push("--hostname", config.hostname);
+      }
+      args.push("/copilot_internal/user");
+      const r = await pi.exec("gh", args, { timeout: 8000 });
       quotaData = r.code === 0 ? (JSON.parse(r.stdout) as CopilotUserData) : null;
     } catch {
       quotaData = null;
     }
+  }
+
+  function toggleHost(): void {
+    currentHost = currentHost === "public" ? "enterprise" : "public";
+    refreshAll();
   }
 
   async function fetchGitBranch(): Promise<void> {
@@ -188,8 +212,9 @@ export default function (pi: ExtensionAPI) {
     const modelId = theme.fg("text", model?.id ?? "no model");
     const dash = theme.fg("dim", " - ");
     const levelStr = theme.fg(thinkingColor(level), level);
+    const hostLabel = theme.fg("muted", ` [${HOSTS[currentHost].name}]`);
 
-    let left = piGlyph + cwd + sep + modelId + dash + levelStr;
+    let left = piGlyph + cwd + sep + modelId + dash + levelStr + theme.fg("dim", " ") + hostLabel;
 
     if (branch) {
       const branchStr = theme.fg("accent", `⑂ ${branch}`);
@@ -249,6 +274,13 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("model_select", () => {
     tuiRef?.requestRender();
+  });
+
+  pi.registerCommand("switch-gh-tenant", {
+    description: "Toggle between github.com and kb-tech.ghe.com for Copilot quota",
+    handler: async () => {
+      toggleHost();
+    },
   });
 
   pi.on("agent_end", async () => {
