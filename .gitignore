@@ -1,3 +1,4 @@
 # Auth & session data
 auth.json
 sessions/
+bin/
