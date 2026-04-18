@@ -13,99 +13,101 @@
  */
 
 import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
-import { CURSOR_MARKER, type Focusable, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { CURSOR_MARKER, type Focusable, matchesKey, visibleWidth } from "@mariozechner/pi-tui";
+import { TextInputComponent } from "../lib";
+import { stripAnsi } from "../lib";
 
 // ── Result type ───────────────────────────────────────────────────────────────
 
 type ApprovalResult =
-	| { action: "approve" }
-	| { action: "approve_instruct"; instruction: string }
-	| { action: "reject_instruct"; instruction: string }
-	| { action: "cancel" };
+  | { action: "approve" }
+  | { action: "approve_instruct"; instruction: string }
+  | { action: "reject_instruct"; instruction: string }
+  | { action: "cancel" };
 
 // ── Read-only classification ──────────────────────────────────────────────────
 
 const SAFE_COMMANDS = new Set([
-	// File reading
-	"cat", "head", "tail", "less", "more", "bat", "tac",
-	// Listing / finding
-	"ls", "tree", "find", "locate", "fd",
-	// Search
-	"grep", "egrep", "fgrep", "rg", "ag", "ack",
-	// File info
-	"file", "stat", "wc", "du", "df", "md5sum", "sha256sum", "sha1sum",
-	// Text processing (stdout-only)
-	"sort", "uniq", "cut", "tr", "awk", "sed", "jq", "yq", "column", "fmt", "fold", "nl", "rev",
-	// Path utilities
-	"which", "whereis", "type", "command", "realpath", "readlink", "basename", "dirname",
-	// System info
-	"echo", "printf", "pwd", "date", "cal", "whoami", "id", "hostname", "uname", "uptime",
-	"env", "printenv", "ps", "free", "lsof",
-	// Comparison
-	"diff", "cmp", "comm",
-	// Test
-	"test", "[", "[[", "true", "false",
-	// Network (read)
-	"dig", "host", "nslookup", "ping",
+  // File reading
+  "cat", "head", "tail", "less", "more", "bat", "tac",
+  // Listing / finding
+  "ls", "tree", "find", "locate", "fd",
+  // Search
+  "grep", "egrep", "fgrep", "rg", "ag", "ack",
+  // File info
+  "file", "stat", "wc", "du", "df", "md5sum", "sha256sum", "sha1sum",
+  // Text processing (stdout-only)
+  "sort", "uniq", "cut", "tr", "awk", "sed", "jq", "yq", "column", "fmt", "fold", "nl", "rev",
+  // Path utilities
+  "which", "whereis", "type", "command", "realpath", "readlink", "basename", "dirname",
+  // System info
+  "echo", "printf", "pwd", "date", "cal", "whoami", "id", "hostname", "uname", "uptime",
+  "env", "printenv", "ps", "free", "lsof",
+  // Comparison
+  "diff", "cmp", "comm",
+  // Test
+  "test", "[", "[[", "true", "false",
+  // Network (read)
+  "dig", "host", "nslookup", "ping",
 ]);
 
 const SAFE_GIT_SUBCOMMANDS = new Set([
-	"status", "log", "diff", "show", "branch", "tag", "remote",
-	"describe", "rev-parse", "ls-files", "blame", "shortlog", "reflog",
+  "status", "log", "diff", "show", "branch", "tag", "remote",
+  "describe", "rev-parse", "ls-files", "blame", "shortlog", "reflog",
 ]);
 
 function firstWord(segment: string): string {
-	const parts = segment.split(/\s+/);
-	for (const p of parts) {
-		if (p.includes("=") && !p.startsWith("-")) continue; // skip FOO=bar
-		return p.split("/").pop() || p; // handle /usr/bin/cat → cat
-	}
-	return parts[0]?.split("/").pop() || "";
+  const parts = segment.split(/\s+/);
+  for (const p of parts) {
+    if (p.includes("=") && !p.startsWith("-")) continue; // skip FOO=bar
+    return p.split("/").pop() || p; // handle /usr/bin/cat → cat
+  }
+  return parts[0]?.split("/").pop() || "";
 }
 
 function secondWord(segment: string): string | undefined {
-	const parts = segment.split(/\s+/).filter((p) => !p.includes("=") || p.startsWith("-"));
-	return parts[1];
+  const parts = segment.split(/\s+/).filter((p) => !p.includes("=") || p.startsWith("-"));
+  return parts[1];
 }
 
 function isReadOnlyBash(command: string): boolean {
-	// Any file redirect → mutating
-	if (command.includes(">")) return false;
-	// sed -i → mutating
-	if (/\bsed\b.*\s-i\b/.test(command)) return false;
+  // Any file redirect → mutating
+  if (command.includes(">")) return false;
+  // sed -i → mutating
+  if (/\bsed\b.*\s-i\b/.test(command)) return false;
 
-	const segments = command
-		.split(/\s*(?:&&|\|\||[;\n|])\s*/)
-		.map((s) => s.trim())
-		.filter(Boolean);
+  const segments = command
+    .split(/\s*(?:&&|\|\||[;\n|])\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-	for (const seg of segments) {
-		const cmd = firstWord(seg);
-		if (!cmd) continue;
+  for (const seg of segments) {
+    const cmd = firstWord(seg);
+    if (!cmd) continue;
 
-		if (cmd === "git") {
-			const sub = secondWord(seg);
-			if (!sub || !SAFE_GIT_SUBCOMMANDS.has(sub)) return false;
-			continue;
-		}
+    if (cmd === "git") {
+      const sub = secondWord(seg);
+      if (!sub || !SAFE_GIT_SUBCOMMANDS.has(sub)) return false;
+      continue;
+    }
 
-		if (!SAFE_COMMANDS.has(cmd)) return false;
-	}
+    if (!SAFE_COMMANDS.has(cmd)) return false;
+  }
 
-	return true;
+  return true;
 }
 
 // ── Tool call description ─────────────────────────────────────────────────────
 
 function describeToolCall(toolName: string, input: Record<string, unknown>): string {
-	if (toolName === "bash") {
-		const cmd = String(input.command ?? "");
-		const first = cmd.split("\n")[0]?.trim() ?? cmd;
-		return `bash  ${first}`;
-	}
-	if (toolName === "edit") return `edit  ${input.path}`;
-	if (toolName === "write") return `write  ${input.path}`;
-	return `${toolName}  ${JSON.stringify(input).slice(0, 80)}`;
+  if (toolName === "bash") {
+    const cmd = String(input.command ?? "");
+    const first = cmd.split("\n")[0]?.trim() ?? cmd;
+    return `bash  ${first}`;
+  }
+  if (toolName === "edit") return `edit  ${input.path}`;
+  if (toolName === "write") return `write  ${input.path}`;
+  return `${toolName}  ${JSON.stringify(input).slice(0, 80)}`;
 }
 
 // ── Approval dialog component ─────────────────────────────────────────────────
@@ -113,231 +115,166 @@ function describeToolCall(toolName: string, input: Record<string, unknown>): str
 const OPTIONS = ["Yes", "Yes, and...", "No, and..."] as const;
 
 class ApprovalDialog implements Focusable {
-	focused = false;
+  focused = false;
 
-	private mode: "select" | "typing" = "select";
-	private selected = 0;
-	private inputBuffer = "";
-	private inputCursor = 0;
-	private description: string;
-	private theme: Theme;
-	private done: (r: ApprovalResult) => void;
+  private mode: "select" | "typing" = "select";
+  private selected = 0;
+  private textInput: TextInputComponent;
+  private description: string;
+  private theme: Theme;
+  private done: (r: ApprovalResult) => void;
 
-	constructor(theme: Theme, description: string, done: (r: ApprovalResult) => void) {
-		this.theme = theme;
-		this.description = description;
-		this.done = done;
-	}
+  constructor(theme: Theme, description: string, done: (r: ApprovalResult) => void) {
+    this.theme = theme;
+    this.description = description;
+    this.done = done;
+    this.textInput = new TextInputComponent(theme, {
+      placeholder: "type instruction...",
+      maxLines: 3,
+    });
+  }
 
-	// ── Input ───────────────────────────────────────────────────────────────
+  // ── Input ───────────────────────────────────────────────────────────────
 
-	handleInput(data: string): void {
-		if (this.mode === "select") {
-			this.handleSelect(data);
-		} else {
-			this.handleTyping(data);
-		}
-	}
+  handleInput(data: string): void {
+    if (this.mode === "select") {
+      this.handleSelect(data);
+    } else {
+      this.handleTyping(data);
+    }
+  }
 
-	private handleSelect(data: string): void {
-		if (matchesKey(data, "up") && this.selected > 0) {
-			this.selected--;
-		} else if (matchesKey(data, "down") && this.selected < 2) {
-			this.selected++;
-		} else if (matchesKey(data, "return")) {
-			if (this.selected === 0) {
-				this.done({ action: "approve" });
-				return;
-			}
-			this.mode = "typing";
-			this.inputBuffer = "";
-			this.inputCursor = 0;
-		} else if (matchesKey(data, "escape")) {
-			this.done({ action: "cancel" });
-			return;
-		} else {
-			return;
-		}
-		this.invalidate();
-	}
+  private handleSelect(data: string): void {
+    if (matchesKey(data, "up") && this.selected > 0) {
+      this.selected--;
+    } else if (matchesKey(data, "down") && this.selected < 2) {
+      this.selected++;
+    } else if (matchesKey(data, "return")) {
+      if (this.selected === 0) {
+        this.done({ action: "approve" });
+        return;
+      }
+      this.mode = "typing";
+      this.textInput.clear();
+      this.textInput.focused = this.focused;
+    } else if (matchesKey(data, "escape")) {
+      this.done({ action: "cancel" });
+      return;
+    } else {
+      return;
+    }
+    this.invalidate();
+  }
 
-	private handleTyping(data: string): void {
-		if (matchesKey(data, "return")) {
-			if (!this.inputBuffer.trim()) return; // require non-empty
-			if (this.selected === 1) {
-				this.done({ action: "approve_instruct", instruction: this.inputBuffer.trim() });
-			} else {
-				this.done({ action: "reject_instruct", instruction: this.inputBuffer.trim() });
-			}
-			return;
-		}
-		if (matchesKey(data, "escape")) {
-			this.mode = "select";
-			this.inputBuffer = "";
-			this.inputCursor = 0;
-			this.invalidate();
-			return;
-		}
-		if (matchesKey(data, "backspace")) {
-			if (this.inputCursor > 0) {
-				this.inputBuffer =
-					this.inputBuffer.slice(0, this.inputCursor - 1) + this.inputBuffer.slice(this.inputCursor);
-				this.inputCursor--;
-			}
-		} else if (matchesKey(data, "left")) {
-			this.inputCursor = Math.max(0, this.inputCursor - 1);
-		} else if (matchesKey(data, "right")) {
-			this.inputCursor = Math.min(this.inputBuffer.length, this.inputCursor + 1);
-		} else if (data.length >= 1 && data.charCodeAt(0) >= 32 && !data.startsWith("\x1b")) {
-			// Printable text (handles paste too)
-			this.inputBuffer =
-				this.inputBuffer.slice(0, this.inputCursor) + data + this.inputBuffer.slice(this.inputCursor);
-			this.inputCursor += data.length;
-		} else {
-			return;
-		}
-		this.invalidate();
-	}
+  private handleTyping(data: string): void {
+    if (matchesKey(data, "return")) {
+      const instruction = this.textInput.getValue().trim();
+      if (!instruction) return; // require non-empty
+      if (this.selected === 1) {
+        this.done({ action: "approve_instruct", instruction });
+      } else {
+        this.done({ action: "reject_instruct", instruction });
+      }
+      return;
+    }
+    if (matchesKey(data, "escape")) {
+      this.mode = "select";
+      this.textInput.clear();
+      this.invalidate();
+      return;
+    }
+    this.textInput.handleInput(data);
+    this.invalidate();
+  }
 
-	// ── Render ──────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────
 
-	private cachedWidth?: number;
-	private cachedLines?: string[];
+  private cachedWidth?: number;
+  private cachedLines?: string[];
 
-	render(width: number): string[] {
-		if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+  render(width: number): string[] {
+    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 
-		const t = this.theme;
-		const innerW = width - 2;
-		const lines: string[] = [];
+    const t = this.theme;
+    const innerW = width - 2;
+    const lines: string[] = [];
 
-		const pad = (s: string, len: number) => {
-			const vis = visibleWidth(s);
-			return s + " ".repeat(Math.max(0, len - vis));
-		};
-		const row = (content: string) => t.fg("border", "│") + pad(content, innerW) + t.fg("border", "│");
+    const pad = (s: string, len: number) => {
+      const vis = visibleWidth(s);
+      return s + " ".repeat(Math.max(0, len - vis));
+    };
+    const row = (content: string) => t.fg("border", "│") + pad(content, innerW) + t.fg("border", "│");
 
-		// ── Top border with title ──
-		const title = " Approval Required ";
-		const borderLeft = Math.max(0, Math.floor((innerW - title.length) / 2));
-		const borderRight = Math.max(0, innerW - borderLeft - title.length);
-		lines.push(
-			t.fg("border", "╭") +
-				t.fg("border", "─".repeat(borderLeft)) +
-				t.fg("accent", title) +
-				t.fg("border", "─".repeat(borderRight)) +
-				t.fg("border", "╮"),
-		);
+    // ── Top border with title ──
+    const title = " Approval Required ";
+    const borderLeft = Math.max(0, Math.floor((innerW - title.length) / 2));
+    const borderRight = Math.max(0, innerW - borderLeft - title.length);
+    lines.push(
+      t.fg("border", "╭") +
+        t.fg("border", "─".repeat(borderLeft)) +
+        t.fg("accent", title) +
+        t.fg("border", "─".repeat(borderRight)) +
+        t.fg("border", "╮"),
+    );
 
-		// ── Tool description ──
-		lines.push(row(""));
-		lines.push(row("  " + truncateToWidth(t.fg("toolTitle", this.description), innerW - 4)));
-		lines.push(row(""));
+    // ── Tool description ──
+    const descTruncated = this.description.length > innerW - 4
+      ? this.description.slice(0, innerW - 7) + "..."
+      : this.description;
+    lines.push(row(""));
+    lines.push(row("  " + t.fg("toolTitle", descTruncated)));
+    lines.push(row(""));
 
-		// ── Options ──
-		if (this.mode === "select") {
-			for (let i = 0; i < OPTIONS.length; i++) {
-				const isSel = i === this.selected;
-				const prefix = isSel ? t.fg("accent", "  ▶ ") : "    ";
-				const label = isSel ? t.fg("accent", OPTIONS[i]) : t.fg("text", OPTIONS[i]);
-				lines.push(row(prefix + label));
-			}
-		} else {
-			for (let i = 0; i < OPTIONS.length; i++) {
-				if (i === this.selected) {
-					// Active input line — wraps across multiple rows as needed
-					const label = i === 1 ? "Yes, and " : "No, and ";
-					const prefixText = "  ↪ " + label;
-					const prefixWidth = prefixText.length; // ASCII-only, .length === visible width
-					const prefix = t.fg("accent", prefixText);
-					const availWidth = Math.max(10, innerW - prefixWidth);
+    // ── Options ──
+    if (this.mode === "select") {
+      for (let i = 0; i < OPTIONS.length; i++) {
+        const isSel = i === this.selected;
+        const prefix = isSel ? t.fg("accent", "  ▶ ") : "    ";
+        const label = isSel ? t.fg("accent", OPTIONS[i]) : t.fg("text", OPTIONS[i]);
+        lines.push(row(prefix + label));
+      }
+    } else {
+      for (let i = 0; i < OPTIONS.length; i++) {
+        if (i === this.selected) {
+          // Active input line
+          const label = i === 1 ? "Yes, and " : "No, and ";
+          const prefix = t.fg("accent", "  ↪ " + label);
+          this.textInput.focused = this.focused;
+          const inputLines = this.textInput.render(innerW - 12);
+          for (let li = 0; li < inputLines.length; li++) {
+            const content = (li === 0 ? prefix : "      ") + inputLines[li]!;
+            lines.push(row(content));
+          }
+        } else {
+          lines.push(row("    " + t.fg("dim", OPTIONS[i])));
+        }
+      }
+    }
 
-					if (this.inputBuffer.length === 0) {
-						const placeholder = t.fg("dim", "type instruction...");
-						const marker = this.focused ? CURSOR_MARKER : "";
-						const cursor = `${marker}\x1b[7m \x1b[27m`;
-						lines.push(row(prefix + cursor + placeholder));
-					} else {
-						// Word-aware wrap: build lines greedily, breaking at spaces.
-						// Each entry records the text and its start offset in inputBuffer
-						// so we can map inputCursor back to (lineIdx, col) precisely.
-						const wrappedLines: Array<{ text: string; start: number }> = [];
-						let pos = 0;
-						const buf = this.inputBuffer;
-						while (pos < buf.length) {
-							if (buf.length - pos <= availWidth) {
-								// Remainder fits — take it all
-								wrappedLines.push({ text: buf.slice(pos), start: pos });
-								break;
-							}
-							// Find the last space within the available width
-							let breakAt = -1;
-							for (let k = pos + availWidth - 1; k > pos; k--) {
-								if (buf[k] === " ") { breakAt = k + 1; break; } // include space on this line
-							}
-							if (breakAt <= pos) {
-								// No space found — hard break
-								breakAt = pos + availWidth;
-							}
-							wrappedLines.push({ text: buf.slice(pos, breakAt), start: pos });
-							pos = breakAt;
-						}
+    // ── Help line ──
+    lines.push(row(""));
+    const help =
+      this.mode === "select"
+        ? "↑↓ navigate • enter select • esc block"
+        : "enter confirm • esc back";
+    lines.push(row("  " + t.fg("dim", help)));
 
-						// Find which line the cursor is on: last line whose start <= cursorPos
-						let cursorLineIdx = 0;
-						for (let li = 0; li < wrappedLines.length; li++) {
-							if (wrappedLines[li]!.start <= this.inputCursor) cursorLineIdx = li;
-							else break;
-						}
-						const cursorCol = this.inputCursor - wrappedLines[cursorLineIdx]!.start;
+    // ── Bottom border ──
+    lines.push(t.fg("border", "╰" + "─".repeat(innerW) + "╯"));
 
-						for (let li = 0; li < wrappedLines.length; li++) {
-							const { text: chunk } = wrappedLines[li]!;
-							const linePrefix = li === 0 ? prefix : " ".repeat(prefixWidth);
+    this.cachedWidth = width;
+    this.cachedLines = lines;
+    return lines;
+  }
 
-							if (li === cursorLineIdx) {
-								const before = chunk.slice(0, cursorCol);
-								const atCursor = cursorCol < chunk.length ? chunk[cursorCol]! : " ";
-								const afterCursor = chunk.slice(cursorCol + 1);
-								const marker = this.focused ? CURSOR_MARKER : "";
-								const display =
-									t.fg("text", before) +
-									`${marker}\x1b[7m${atCursor}\x1b[27m` +
-									t.fg("text", afterCursor);
-								lines.push(row(linePrefix + display));
-							} else {
-								lines.push(row(linePrefix + t.fg("text", chunk)));
-							}
-						}
-					}
-				} else {
-					lines.push(row("    " + t.fg("dim", OPTIONS[i])));
-				}
-			}
-		}
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
 
-		// ── Help line ──
-		lines.push(row(""));
-		const help =
-			this.mode === "select"
-				? "↑↓ navigate • enter select • esc block"
-				: "enter confirm • esc back";
-		lines.push(row("  " + t.fg("dim", help)));
-
-		// ── Bottom border ──
-		lines.push(t.fg("border", "╰" + "─".repeat(innerW) + "╯"));
-
-		this.cachedWidth = width;
-		this.cachedLines = lines;
-		return lines;
-	}
-
-	invalidate(): void {
-		this.cachedWidth = undefined;
-		this.cachedLines = undefined;
-	}
-
-	dispose(): void {}
+  dispose(): void {
+    this.textInput.dispose();
+  }
 }
 
 // ── System prompt snippet ─────────────────────────────────────────────────────
@@ -357,56 +294,56 @@ instructions afterward.
 // ── Extension ─────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-	// ── Gate mutating tool calls ──
+  // ── Gate mutating tool calls ──
 
-	pi.on("tool_call", async (event, ctx) => {
-		// Always allow read-only tools
-		if (["read", "ls", "grep", "find"].includes(event.toolName)) return undefined;
+  pi.on("tool_call", async (event, ctx) => {
+    // Always allow read-only tools
+    if (["read", "ls", "grep", "find"].includes(event.toolName)) return undefined;
 
-		// Allow read-only bash
-		if (event.toolName === "bash") {
-			const cmd = (event.input as { command?: string }).command ?? "";
-			if (isReadOnlyBash(cmd)) return undefined;
-		}
+    // Allow read-only bash
+    if (event.toolName === "bash") {
+      const cmd = (event.input as { command?: string }).command ?? "";
+      if (isReadOnlyBash(cmd)) return undefined;
+    }
 
-		// Non-interactive mode: block by default
-		if (!ctx.hasUI) {
-			return { block: true, reason: "Mutating tool call blocked (no UI for approval)" };
-		}
+    // Non-interactive mode: block by default
+    if (!ctx.hasUI) {
+      return { block: true, reason: "Mutating tool call blocked (no UI for approval)" };
+    }
 
-		// Build description
-		const desc = describeToolCall(event.toolName, event.input as Record<string, unknown>);
+    // Build description
+    const desc = describeToolCall(event.toolName, event.input as Record<string, unknown>);
 
-		// Show approval dialog
-		const result = await ctx.ui.custom<ApprovalResult>(
-			(_tui, theme, _kb, done) => new ApprovalDialog(theme, desc, done),
-			{ overlay: true },
-		);
+    // Show approval dialog
+    const result = await ctx.ui.custom<ApprovalResult>(
+      (_tui, theme, _kb, done) => new ApprovalDialog(theme, desc, done),
+      { overlay: true },
+    );
 
-		if (!result || result.action === "cancel") {
-			return { block: true, reason: "Blocked by user" };
-		}
+    if (!result || result.action === "cancel") {
+      return { block: true, reason: "Blocked by user" };
+    }
 
-		if (result.action === "approve") {
-			return undefined;
-		}
+    if (result.action === "approve") {
+      return undefined;
+    }
 
-		if (result.action === "approve_instruct") {
-			pi.sendUserMessage(result.instruction, { deliverAs: "steer" });
-			return undefined;
-		}
+    if (result.action === "approve_instruct") {
+      pi.sendUserMessage(result.instruction, { deliverAs: "steer" });
+      return undefined;
+    }
 
-		if (result.action === "reject_instruct") {
-			pi.sendUserMessage(result.instruction, { deliverAs: "steer" });
-			return { block: true, reason: "Rejected by user" };
-		}
+    if (result.action === "reject_instruct") {
+      pi.sendUserMessage(result.instruction, { deliverAs: "steer" });
+      return { block: true, reason: "Rejected by user" };
+    }
 
-		return undefined;
-	});
+    return undefined;
+  });
 
-	// ── Inject gate instructions into system prompt ──
+  // ── Inject gate instructions into system prompt ──
 
-	pi.on("before_agent_start", async (event, _ctx) => {
-		return { systemPrompt: event.systemPrompt + "\n\n" + GATE_PROMPT };
-	});
+  pi.on("before_agent_start", async (event, _ctx) => {
+    return { systemPrompt: event.systemPrompt + "\n\n" + GATE_PROMPT };
+  });
 }
