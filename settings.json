@@ -1,6 +1,6 @@
 {
   "theme": "automata-night",
-  "lastChangelogVersion": "0.67.6",
+  "lastChangelogVersion": "0.67.68",
   "defaultProvider": "github-copilot",
   "defaultModel": "claude-sonnet-4.6",
   "defaultThinkingLevel": "high",

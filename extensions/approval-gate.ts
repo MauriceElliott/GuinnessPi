@@ -245,9 +245,12 @@ class ApprovalDialog implements Focusable {
 		} else {
 			for (let i = 0; i < OPTIONS.length; i++) {
 				if (i === this.selected) {
-					// Active input line
+					// Active input line — wraps across multiple rows as needed
 					const label = i === 1 ? "Yes, and " : "No, and ";
-					const prefix = t.fg("accent", "  ↪ " + label);
+					const prefixText = "  ↪ " + label;
+					const prefixWidth = prefixText.length; // ASCII-only, .length === visible width
+					const prefix = t.fg("accent", prefixText);
+					const availWidth = Math.max(10, innerW - prefixWidth);
 
 					if (this.inputBuffer.length === 0) {
 						const placeholder = t.fg("dim", "type instruction...");
@@ -255,18 +258,45 @@ class ApprovalDialog implements Focusable {
 						const cursor = `${marker}\x1b[7m \x1b[27m`;
 						lines.push(row(prefix + cursor + placeholder));
 					} else {
-						const before = this.inputBuffer.slice(0, this.inputCursor);
-						const cursorChar =
-							this.inputCursor < this.inputBuffer.length
-								? this.inputBuffer[this.inputCursor]!
-								: " ";
-						const after = this.inputBuffer.slice(this.inputCursor + 1);
-						const marker = this.focused ? CURSOR_MARKER : "";
-						const display =
-							t.fg("text", before) +
-							`${marker}\x1b[7m${cursorChar}\x1b[27m` +
-							t.fg("text", after);
-						lines.push(row(prefix + display));
+						// Split buffer into chunks that fit within availWidth
+						const chunks: string[] = [];
+						for (let c = 0; c < this.inputBuffer.length; c += availWidth) {
+							chunks.push(this.inputBuffer.slice(c, c + availWidth));
+						}
+						// If cursor sits exactly on a chunk boundary at the end, add an
+						// empty trailing chunk so the cursor has a line to render on.
+						if (
+							this.inputCursor === this.inputBuffer.length &&
+							this.inputBuffer.length % availWidth === 0
+						) {
+							chunks.push("");
+						}
+
+						const cursorChunkIdx = Math.min(
+							Math.floor(this.inputCursor / availWidth),
+							chunks.length - 1,
+						);
+						const cursorColInChunk = this.inputCursor % availWidth;
+
+						for (let ci = 0; ci < chunks.length; ci++) {
+							const chunk = chunks[ci]!;
+							const linePrefix = ci === 0 ? prefix : " ".repeat(prefixWidth);
+
+							if (ci === cursorChunkIdx) {
+								const before = chunk.slice(0, cursorColInChunk);
+								const atCursor =
+									cursorColInChunk < chunk.length ? chunk[cursorColInChunk]! : " ";
+								const afterCursor = chunk.slice(cursorColInChunk + 1);
+								const marker = this.focused ? CURSOR_MARKER : "";
+								const display =
+									t.fg("text", before) +
+									`${marker}\x1b[7m${atCursor}\x1b[27m` +
+									t.fg("text", afterCursor);
+								lines.push(row(linePrefix + display));
+							} else {
+								lines.push(row(linePrefix + t.fg("text", chunk)));
+							}
+						}
 					}
 				} else {
 					lines.push(row("    " + t.fg("dim", OPTIONS[i])));
