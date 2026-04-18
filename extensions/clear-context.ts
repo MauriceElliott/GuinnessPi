@@ -1,7 +1,7 @@
 /**
  * Clear Context Command
  *
- * Registers /clear command to clear the conversation context and screen.
+ * Registers /clear command to clear the conversation context and start a new session.
  * Similar to /clear in GitHub Copilot.
  *
  * Placement: ~/.pi/agent/extensions/clear-context.ts
@@ -11,12 +11,9 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("clear", {
-    description: "Clear conversation context and screen",
-    handler: async () => {
-      // Send message to clear context
-      pi
-      pi.sendUserMessage("", { deliverAs: "clear" });
-      console.clear();
+    description: "Clear conversation context and start a new session",
+    handler: async (_args, ctx) => {
+      await ctx.newSession();
     },
   });
 }
