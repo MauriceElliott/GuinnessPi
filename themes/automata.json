@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
-  "name": "automata-night",
+  "name": "automata",
   "vars": {
     "bg":         "#1A1313",
     "cyan":       "#4CD6D9",
@@ -36,14 +36,14 @@
     "thinkingText":       "warmGray",
 
     "selectedBg":         "selectionBg",
-    "userMessageBg":      "cyan",
+    "userMessageBg":      "bg",
     "userMessageText":    "cyanBright",
     "customMessageBg":    "redBright",
     "customMessageText":  "fgBright",
     "customMessageLabel": "magenta",
     "toolPendingBg":      "bg",
     "toolSuccessBg":      "bg",
-    "toolErrorBg":        "redBright",
+    "toolErrorBg":        "bg",
     "toolTitle":          "fg",
     "toolOutput":         "warmGray",
 
