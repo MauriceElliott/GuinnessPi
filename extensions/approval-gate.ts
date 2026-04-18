@@ -31,7 +31,7 @@ const SAFE_COMMANDS = new Set([
   // File reading
   "cat", "head", "tail", "less", "more", "bat", "tac",
   // Listing / finding
-  "ls", "tree", "find", "locate", "fd",
+  "ls", "tree", "find", "locate", "fd", "cd",
   // Search
   "grep", "egrep", "fgrep", "rg", "ag", "ack",
   // File info
