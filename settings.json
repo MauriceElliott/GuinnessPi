@@ -1,9 +1,9 @@
 {
-  "theme": "automata-night",
+  "theme": "guinness",
   "lastChangelogVersion": "0.67.68",
   "defaultProvider": "github-copilot",
   "defaultModel": "claude-haiku-4.5",
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "medium",
   "enableInstallTelemetry": false,
   "activeGhHost": "github.com"
 }
