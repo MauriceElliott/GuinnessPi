@@ -258,35 +258,47 @@ class ApprovalDialog implements Focusable {
 						const cursor = `${marker}\x1b[7m \x1b[27m`;
 						lines.push(row(prefix + cursor + placeholder));
 					} else {
-						// Split buffer into chunks that fit within availWidth
-						const chunks: string[] = [];
-						for (let c = 0; c < this.inputBuffer.length; c += availWidth) {
-							chunks.push(this.inputBuffer.slice(c, c + availWidth));
+						// Word-aware wrap: build lines greedily, breaking at spaces.
+						// Each entry records the text and its start offset in inputBuffer
+						// so we can map inputCursor back to (lineIdx, col) precisely.
+						const wrappedLines: Array<{ text: string; start: number }> = [];
+						let pos = 0;
+						const buf = this.inputBuffer;
+						while (pos < buf.length) {
+							if (buf.length - pos <= availWidth) {
+								// Remainder fits — take it all
+								wrappedLines.push({ text: buf.slice(pos), start: pos });
+								break;
+							}
+							// Find the last space within the available width
+							let breakAt = -1;
+							for (let k = pos + availWidth - 1; k > pos; k--) {
+								if (buf[k] === " ") { breakAt = k + 1; break; } // include space on this line
+							}
+							if (breakAt <= pos) {
+								// No space found — hard break
+								breakAt = pos + availWidth;
+							}
+							wrappedLines.push({ text: buf.slice(pos, breakAt), start: pos });
+							pos = breakAt;
 						}
-						// If cursor sits exactly on a chunk boundary at the end, add an
-						// empty trailing chunk so the cursor has a line to render on.
-						if (
-							this.inputCursor === this.inputBuffer.length &&
-							this.inputBuffer.length % availWidth === 0
-						) {
-							chunks.push("");
+
+						// Find which line the cursor is on: last line whose start <= cursorPos
+						let cursorLineIdx = 0;
+						for (let li = 0; li < wrappedLines.length; li++) {
+							if (wrappedLines[li]!.start <= this.inputCursor) cursorLineIdx = li;
+							else break;
 						}
+						const cursorCol = this.inputCursor - wrappedLines[cursorLineIdx]!.start;
 
-						const cursorChunkIdx = Math.min(
-							Math.floor(this.inputCursor / availWidth),
-							chunks.length - 1,
-						);
-						const cursorColInChunk = this.inputCursor % availWidth;
+						for (let li = 0; li < wrappedLines.length; li++) {
+							const { text: chunk } = wrappedLines[li]!;
+							const linePrefix = li === 0 ? prefix : " ".repeat(prefixWidth);
 
-						for (let ci = 0; ci < chunks.length; ci++) {
-							const chunk = chunks[ci]!;
-							const linePrefix = ci === 0 ? prefix : " ".repeat(prefixWidth);
-
-							if (ci === cursorChunkIdx) {
-								const before = chunk.slice(0, cursorColInChunk);
-								const atCursor =
-									cursorColInChunk < chunk.length ? chunk[cursorColInChunk]! : " ";
-								const afterCursor = chunk.slice(cursorColInChunk + 1);
+							if (li === cursorLineIdx) {
+								const before = chunk.slice(0, cursorCol);
+								const atCursor = cursorCol < chunk.length ? chunk[cursorCol]! : " ";
+								const afterCursor = chunk.slice(cursorCol + 1);
 								const marker = this.focused ? CURSOR_MARKER : "";
 								const display =
 									t.fg("text", before) +
