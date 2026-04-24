@@ -2,11 +2,10 @@
  * Approval Gate Extension
  *
  * Intercepts mutating tool calls (write, edit, non-read-only bash) and
- * presents an overlay dialog with three options:
+ * presents an approval dialog.
  *
- *   Yes            – approve as-is
- *   Yes, and...    – approve + send a steering instruction
- *   No, and...     – block  + send an alternative instruction
+ * edit / write  → compact right-anchored overlay: Accept | Cancel
+ * bash          → full centre overlay: Yes | Yes, and... | No, and...
  *
  * Read-only tools (read, ls, grep, find) and read-only bash commands
  * pass through without prompting.
@@ -95,6 +94,105 @@ function isReadOnlyBash(command: string): boolean {
   }
 
   return true;
+}
+
+// ── Simple approval dialog (edit / write) ───────────────────────────────────
+
+const SIMPLE_OPTIONS = ["Accept", "Cancel"] as const;
+
+class SimpleApprovalDialog implements Focusable {
+  focused = false;
+
+  private selected = 0;
+  private description: string;
+  private theme: Theme;
+  private done: (r: ApprovalResult) => void;
+  private cachedWidth?: number;
+  private cachedLines?: string[];
+
+  constructor(theme: Theme, description: string, done: (r: ApprovalResult) => void) {
+    this.theme = theme;
+    this.description = description;
+    this.done = done;
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, "up") && this.selected > 0) {
+      this.selected--;
+    } else if (matchesKey(data, "down") && this.selected < 1) {
+      this.selected++;
+    } else if (matchesKey(data, "return")) {
+      this.done(this.selected === 0 ? { action: "approve" } : { action: "cancel" });
+      return;
+    } else if (matchesKey(data, "escape")) {
+      this.done({ action: "cancel" });
+      return;
+    } else {
+      return;
+    }
+    this.invalidate();
+  }
+
+  render(width: number): string[] {
+    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+
+    const t = this.theme;
+    const innerW = width - 2;
+    const lines: string[] = [];
+
+    const pad = (s: string, len: number) => {
+      const vis = visibleWidth(s);
+      return s + " ".repeat(Math.max(0, len - vis));
+    };
+    const row = (content: string) => t.fg("border", "│") + pad(content, innerW) + t.fg("border", "│");
+
+    // Top border
+    const title = " Approval ";
+    const borderLeft = Math.max(0, Math.floor((innerW - title.length) / 2));
+    const borderRight = Math.max(0, innerW - borderLeft - title.length);
+    lines.push(
+      t.fg("border", "╭") +
+        t.fg("border", "─".repeat(borderLeft)) +
+        t.fg("accent", title) +
+        t.fg("border", "─".repeat(borderRight)) +
+        t.fg("border", "╮"),
+    );
+
+    // Description
+    const descTruncated =
+      this.description.length > innerW - 4
+        ? this.description.slice(0, innerW - 7) + "..."
+        : this.description;
+    lines.push(row(""));
+    lines.push(row("  " + t.fg("toolTitle", descTruncated)));
+    lines.push(row(""));
+
+    // Options
+    for (let i = 0; i < SIMPLE_OPTIONS.length; i++) {
+      const isSel = i === this.selected;
+      const prefix = isSel ? t.fg("accent", "  ▶ ") : "    ";
+      const label = isSel ? t.fg("accent", SIMPLE_OPTIONS[i]) : t.fg("text", SIMPLE_OPTIONS[i]);
+      lines.push(row(prefix + label));
+    }
+
+    // Help
+    lines.push(row(""));
+    lines.push(row("  " + t.fg("dim", "↑↓ navigate  •  enter  •  esc cancel")));
+
+    // Bottom border
+    lines.push(t.fg("border", "╰" + "─".repeat(innerW) + "╯"));
+
+    this.cachedWidth = width;
+    this.cachedLines = lines;
+    return lines;
+  }
+
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+
+  dispose(): void {}
 }
 
 // ── Tool call description ─────────────────────────────────────────────────────
@@ -314,9 +412,37 @@ export default function (pi: ExtensionAPI) {
     // Build description
     const desc = describeToolCall(event.toolName, event.input as Record<string, unknown>);
 
-    // Show approval dialog
+    // edit / write → compact right-anchored dialog
+    if (event.toolName === "edit" || event.toolName === "write") {
+      const result = await ctx.ui.custom<ApprovalResult>(
+        (_tui, theme, _kb, done) => {
+          const dialog = new SimpleApprovalDialog(theme, desc, done);
+          dialog.focused = true;
+          return dialog;
+        },
+        {
+          overlay: true,
+          overlayOptions: () => ({
+            anchor: "bottom-right",
+            width: 42,
+            margin: 2,
+          }),
+        },
+      );
+
+      if (!result || result.action === "cancel") {
+        return { block: true, reason: "Blocked by user" };
+      }
+      return undefined;
+    }
+
+    // bash (and any other mutating tools) → full centre dialog
     const result = await ctx.ui.custom<ApprovalResult>(
-      (_tui, theme, _kb, done) => new ApprovalDialog(theme, desc, done),
+      (_tui, theme, _kb, done) => {
+        const dialog = new ApprovalDialog(theme, desc, done);
+        dialog.focused = true;
+        return dialog;
+      },
       { overlay: true },
     );
 
