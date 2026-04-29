@@ -28,10 +28,10 @@ import { join } from "path";
 import {
   readJsonConfig,
   writeJsonConfig,
-  discoverAuthenticatedHosts,
+  discoverSidecarHosts,
+  discoverCopilotUsers,
   getHostFromCredential,
   getAuthSidecarPath,
-  normalizeHost,
   findCopilotUserByHost,
   rotateNext,
 } from "../lib";
@@ -57,7 +57,6 @@ const HOME = process.env.HOME ?? "";
 const piDir = join(HOME, ".pi/agent");
 const settingsPath = join(piDir, "settings.json");
 const authPath = join(piDir, "auth.json");
-const ghHostsPath = join(HOME, ".config/gh/hosts.yml");
 const copilotConfigPath = join(HOME, ".copilot/config.json");
 
 // ─── Extension ────────────────────────────────────────────────────────────────
@@ -66,10 +65,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("switch-account", {
     description: "Cycle active GitHub account (gh CLI + Copilot CLI + pi auth)",
     handler: async () => {
-      const { hosts, copilotUsers } = discoverAuthenticatedHosts(
-        ghHostsPath,
-        copilotConfigPath
-      );
+      const hosts = discoverSidecarHosts(piDir);
+      const copilotUsers = discoverCopilotUsers(copilotConfigPath);
 
       if (hosts.length < 2) {
         console.log("[switch-account] fewer than 2 accounts discovered — nothing to switch");

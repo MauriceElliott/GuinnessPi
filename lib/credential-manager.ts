@@ -5,7 +5,7 @@
  * hostnames, and cycling through credentials.
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -168,6 +168,24 @@ export function findCopilotUserByHost(
  */
 export function getAuthSidecarPath(piDir: string, host: string): string {
   return join(piDir, `auth.${host}.json`);
+}
+
+/**
+ * Discover available accounts from pi credential sidecar files.
+ * Scans piDir for files matching auth.{hostname}.json pattern.
+ * This is the authoritative source for which accounts pi has credentials for.
+ * @param piDir - Path to ~/.pi/agent
+ * @returns Array of hostnames
+ */
+export function discoverSidecarHosts(piDir: string): string[] {
+  try {
+    const files = readdirSync(piDir) as string[];
+    return files
+      .filter((f) => /^auth\..+\.json$/.test(f) && f !== "auth.json")
+      .map((f) => f.slice(5, -5)); // strip "auth." prefix and ".json" suffix
+  } catch {
+    return [];
+  }
 }
 
 /**
