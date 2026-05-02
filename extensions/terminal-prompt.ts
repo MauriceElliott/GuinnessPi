@@ -19,10 +19,11 @@ import {
   abbreviatePath,
   formatShortDate,
   readJsonConfig,
-  watchJsonConfig,
   stripAnsi,
   thinkingLevelToColor,
   layoutLeftRight,
+  getHostFromCredential,
+  type PiAuthStore,
 } from "../lib";
 import { execGit, execGh } from "../lib";
 
@@ -110,17 +111,14 @@ export default function (pi: ExtensionAPI) {
   let tuiRef: { requestRender(): void } | null = null;
   let cwdCache = "";
 
-  // Load activeGhHost from settings.json (migrates legacy ghTenant field)
-  const settingsPath = join(process.env.HOME || "", ".pi/agent/settings.json");
-  const settings = readJsonConfig<Record<string, unknown>>(settingsPath, {});
-  let currentHost: string = (() => {
-    if (typeof settings.activeGhHost === "string") return settings.activeGhHost;
-    if (settings.ghTenant === "enterprise") return "kb-tech.ghe.com";
-    return "github.com";
-  })();
+  const authPath = join(process.env.HOME || "", ".pi/agent/auth.json");
+  let currentHost: string = "github.com";
 
   async function fetchQuota(): Promise<void> {
     try {
+      const authStore = readJsonConfig<PiAuthStore>(authPath, {});
+      const cred = authStore["github-copilot"];
+      currentHost = cred ? getHostFromCredential(cred) : "github.com";
       const result = await execGh(
         pi,
         ["api", "/copilot_internal/user"],
@@ -231,23 +229,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("model_select", () => {
     tuiRef?.requestRender();
   });
-
-  // Re-render when gh-tenant-switch writes a new activeGhHost to settings.json
-  try {
-    watchJsonConfig(
-      settingsPath,
-      (newSettings) => {
-        const newHost: string = (newSettings as Record<string, unknown>).activeGhHost as string ??
-          ((newSettings as Record<string, unknown>).ghTenant === "enterprise" ? "kb-tech.ghe.com" : "github.com");
-        if (newHost !== currentHost) {
-          currentHost = newHost;
-          refreshAll();
-        }
-      },
-      {},
-      { debounceMs: 150 }
-    );
-  } catch { /* settings file not watchable */ }
 
   pi.on("agent_end", async () => {
     await refreshAll();
