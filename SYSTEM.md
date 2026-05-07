@@ -10,7 +10,11 @@
 
 # Coding Rules
 - If you run a build or terraform plan, or any other compilation type operation clean up the generated files after.
-- spaces, not tabs. lol
+- spaces, not tabs.
+- Only ever code the happy path, code it dirty, i.e. hardcode values, code it lean, do not make it defensive, just make it as simple as possible, I will add the complexity. This should be the case with all code, I do not want to see a single pointlessly extrapolated variable unless it is used 3 time or more in the code.
+
+# Bash Rules
+- I never want to see a switch statement unless we are specifically adding the functionality to allow compilation on more than one environment with more than one setup, or its necessary for the logic. Defensive builds are not what we are here for, just the happy path, we can add the complexity when things break.
 
 # Terraform Rules
 - prefer foreach over count when creating conditional blocks

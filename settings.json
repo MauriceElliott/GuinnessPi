@@ -1,9 +1,9 @@
 {
   "theme": "guinness",
-  "lastChangelogVersion": "0.71.1",
+  "lastChangelogVersion": "0.73.1",
   "defaultProvider": "github-copilot",
   "defaultModel": "claude-sonnet-4.6",
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "medium",
   "enableInstallTelemetry": false,
   "activeGhHost": "kb-tech.ghe.com"
 }
