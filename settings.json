@@ -3,7 +3,7 @@
   "lastChangelogVersion": "0.75.4",
   "defaultProvider": "github-copilot",
   "defaultModel": "claude-sonnet-4.6",
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "medium",
   "enableInstallTelemetry": false,
   "activeGhHost": "kb-tech.ghe.com"
 }
