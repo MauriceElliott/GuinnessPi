@@ -1,6 +1,6 @@
 {
   "theme": "guinness",
-  "lastChangelogVersion": "0.70.6",
+  "lastChangelogVersion": "0.75.4",
   "defaultProvider": "github-copilot",
   "defaultModel": "claude-sonnet-4.6",
   "defaultThinkingLevel": "high",

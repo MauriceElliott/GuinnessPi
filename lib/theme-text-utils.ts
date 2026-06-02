@@ -159,6 +159,19 @@ export function layoutLeftRight(
 ): string {
   const leftVis = visibleWidth(left);
   const rightVis = visibleWidth(right);
-  const pad = Math.max(1, totalWidth - leftVis - rightVis);
-  return left + " ".repeat(pad) + right;
+
+  // Happy path: both sides fit with padding.
+  if (leftVis + rightVis + 1 <= totalWidth) {
+    const pad = totalWidth - leftVis - rightVis;
+    return left + " ".repeat(pad) + right;
+  }
+
+  // Overflow: try truncating left to make room for right + 1 space separator.
+  const leftBudget = totalWidth - rightVis - 1;
+  if (leftBudget >= 1) {
+    return truncateToVisibleWidth(left, leftBudget) + " " + right;
+  }
+
+  // Right alone doesn't fit either: drop it and truncate left to totalWidth.
+  return truncateToVisibleWidth(left, totalWidth);
 }
