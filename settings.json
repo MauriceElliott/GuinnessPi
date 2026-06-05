@@ -2,7 +2,7 @@
   "theme": "guinness",
   "lastChangelogVersion": "0.75.4",
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-sonnet-4.6",
+  "defaultModel": "claude-haiku-4.5",
   "defaultThinkingLevel": "medium",
   "enableInstallTelemetry": false,
   "activeGhHost": "kb-tech.ghe.com"

@@ -37,7 +37,7 @@ interface QuotaSnapshot {
 }
 
 interface CopilotUserData {
-  quota_reset_date_utc: string;
+  quota_reset_date: string;
   quota_snapshots: { premium_interactions: QuotaSnapshot };
 }
 
@@ -190,7 +190,7 @@ export default function (pi: ExtensionAPI) {
           theme.fg("dim", "◆ ") +
           theme.fg(countColor, `${snap.remaining}/${snap.entitlement}`) +
           theme.fg("dim", `  ${Math.round(pct)}%`) +
-          theme.fg("dim", `  ↺ ${formatShortDate(quotaData.quota_reset_date_utc)}`);
+          theme.fg("dim", `  ↺ ${formatShortDate(quotaData.quota_reset_date)}`);
       }
     }
 
